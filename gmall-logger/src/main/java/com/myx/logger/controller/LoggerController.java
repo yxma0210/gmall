@@ -1,4 +1,4 @@
-package com.myx.gmall.controller;
+package com.myx.logger.controller;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
@@ -9,6 +9,8 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+
 
 
 /**
@@ -34,6 +36,7 @@ public class LoggerController {
     @RequestMapping("/applog")
     public String applog(@RequestBody String mockLog) {
         // 落盘
+
         log.info(mockLog);
         //根据日志的类型，发送到kafka的不同主题中去
         //将接收到的字符串数据转换为json对象

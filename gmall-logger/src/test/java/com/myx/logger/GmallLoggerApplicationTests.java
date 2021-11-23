@@ -1,4 +1,4 @@
-package com.myx.gmall;
+package com.myx.logger;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
