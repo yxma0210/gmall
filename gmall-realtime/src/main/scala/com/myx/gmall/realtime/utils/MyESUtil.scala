@@ -5,7 +5,11 @@ import java.util
 import com.myx.gmall.realtime.bean.Movie
 import io.searchbox.client.config.HttpClientConfig
 import io.searchbox.client.{JestClient, JestClientFactory}
-import io.searchbox.core.{DocumentResult, Get, Index}
+import io.searchbox.core.{DocumentResult, Get, Index, Search, SearchResult}
+import org.elasticsearch.index.query.{BoolQueryBuilder, MatchQueryBuilder, TermQueryBuilder}
+import org.elasticsearch.search.builder.SearchSourceBuilder
+import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder
+import org.elasticsearch.search.sort.SortOrder
 
 /**
  * @Description: 操作ES的客户端工具类
@@ -102,7 +106,86 @@ object MyESUtil {
     jestClient.close()
   }
 
+  //根据指定查询条件，从ES中查询多个文档  方式1
+  def queryIndexByCondition1(): Unit = {
+    // 获取客户端连接
+    val jestClient: JestClient = getJestClient
+
+    var query: String =
+        """
+        |{
+        |  "query": {
+        |    "bool": {
+        |      "must": [
+        |        {"match": {
+        |          "name": "天下第一"
+        |        }}
+        |      ],
+        |      "filter": [
+        |        {"term":{"actorList.name.keyword":"铁蛋神猴"}}
+        |        ]
+        |    }
+        |  },
+        |  "from": 0,
+        |  "size": 10,
+        |  "sort": [
+        |    {
+        |      "doubanScore": {
+        |        "order": "desc"
+        |      }
+        |    }
+        |  ],
+        |  "highlight": {
+        |    "fields": {
+        |      "name": {}
+        |    }
+        |  }
+        |}
+        |""".stripMargin
+    // 封装Search对象
+    val search: Search = new Search.Builder(query)
+      .addIndex("movie_index")
+      .build()
+    val result: SearchResult = jestClient.execute(search)
+    val list: util.List[SearchResult#Hit[util.Map[String, Any], Void]] = result.getHits(classOf[util.Map[String, Any]])
+    // 将java的List转化为json的List
+    import scala.collection.JavaConverters._
+    val list1: List[util.Map[String, Any]] = list.asScala.map(_.source).toList
+    println(list1.mkString("\n"))
+    // 关闭连接
+    jestClient.close()
+  }
+  //根据指定查询条件，从ES中查询多个文档  方式2
+  def queryIndexByCondition2():Unit = {
+    // 获取客户端连接
+    val jestClient: JestClient = getJestClient
+    //SearchSourceBuilder用于构建查询的json格式字符串
+    val searchSourceBuilder: SearchSourceBuilder = new SearchSourceBuilder
+    val boolQueryBuilder: BoolQueryBuilder = new BoolQueryBuilder
+    boolQueryBuilder.must(new MatchQueryBuilder("name","天下第一"))
+    boolQueryBuilder.filter(new TermQueryBuilder("actorList.name.keyword",
+      "铁蛋神猴"))
+    searchSourceBuilder.query(boolQueryBuilder)
+    searchSourceBuilder.from(0)
+    searchSourceBuilder.size(10)
+    searchSourceBuilder.sort("doubanScore",SortOrder.DESC)
+    searchSourceBuilder.highlighter(new HighlightBuilder().field("name"))
+    val query: String = searchSourceBuilder.toString
+    // 封装Search对象
+    val search: Search = new Search.Builder(query)
+      .addIndex("movie_index")
+      .build()
+    val result: SearchResult = jestClient.execute(search)
+    val list: util.List[SearchResult#Hit[util.Map[String, Any], Void]] = result.getHits(classOf[util.Map[String, Any]])
+    // 将java的List转化为Json的List
+    import scala.collection.JavaConverters._
+    val list1: List[util.Map[String, Any]] = list.asScala.map(_.source).toList
+    println(list1.mkString("\n"))
+    // 关闭连接
+    jestClient.close()
+  }
+
   def main(args: Array[String]): Unit = {
-    queryIndexById
+    queryIndexByCondition2()
   }
 }
