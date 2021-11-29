@@ -50,7 +50,7 @@ object DauApp {
 
     //通过Redis   对采集到的启动日志进行去重操作  方案1  采集周期中的每条数据都要获取一次Redis的连接，连接过于频繁
     //redis类型:set  key：dau：2021-11-29  value: mid   expire   3600*24
-    jsonObjDStream.filter{
+    val filteredDStream: DStream[JSONObject] = jsonObjDStream.filter {
       jsonObj => {
         // 获取登录日期
         val dt: String = jsonObj.getString("dt")
@@ -63,8 +63,8 @@ object DauApp {
         // 从redis中判断当前的设置是否登录过
         val isFirst: lang.Long = jedis.sadd(dauKey, mid)
         // 设置redis的实效时间
-        if(jedis.ttl(dauKey) < 0) {
-          jedis.expire(dauKey,3600*24)
+        if (jedis.ttl(dauKey) < 0) {
+          jedis.expire(dauKey, 3600 * 24)
         }
         // 关闭连接
         jedis.close()
@@ -77,7 +77,8 @@ object DauApp {
         }
       }
     }
-
+    //输出测试    数量会越来越少，最后变为0   因为我们mid只是模拟了50个
+    filteredDStream.count().print()
     ssc.start()
     ssc.awaitTermination()
   }
