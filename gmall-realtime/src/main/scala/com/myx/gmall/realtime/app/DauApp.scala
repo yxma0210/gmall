@@ -12,6 +12,8 @@ import org.apache.spark.streaming.dstream.{DStream, InputDStream}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 import redis.clients.jedis.Jedis
 
+import scala.collection.mutable.ListBuffer
+
 /**
  * @Description: 日活业务
  * @author: mayx
@@ -50,7 +52,7 @@ object DauApp {
 
     //通过Redis   对采集到的启动日志进行去重操作  方案1  采集周期中的每条数据都要获取一次Redis的连接，连接过于频繁
     //redis类型:set  key：dau：2021-11-29  value: mid   expire   3600*24
-    jsonObjDStream.filter{
+    /*jsonObjDStream.filter{
       jsonObj => {
         // 获取登录日期
         val dt: String = jsonObj.getString("dt")
@@ -76,8 +78,40 @@ object DauApp {
           false
         }
       }
+    }*/
+    //通过Redis   对采集到的启动日志进行去重操作  方案2  以分区为单位对数据进行处理，每一个分区获取一次Redis的连接
+    //redis类型:set  key：dau：2021-11-29  value: mid   expire   3600*24
+    val filteredDStream: DStream[JSONObject] = jsonObjDStream.mapPartitions {
+      // 以分区为单位对数据进行处理
+      jsonObjIter => {
+        // 每一个分区获取一次redis的连接
+        val jedis: Jedis = MyRedisUtil.getJedisClient()
+        //定义一个集合，用于存放当前分区中第一次登陆的日志
+        val filteredList: ListBuffer[JSONObject] = new ListBuffer[JSONObject]()
+        // 对分区的数据进行遍历
+        for (jsonObj <- jsonObjIter) {
+          // 获取日期
+          val dt: String = jsonObj.getString("dt")
+          // 获取设备mid
+          val mid: String = jsonObj.getJSONObject("common").getString("mid")
+          // 拼接操作redis的key
+          val daukdy = "dau:" + dt
+          val isFirst: lang.Long = jedis.sadd(daukdy, mid)
+          // 设置key的实效时间
+          if (jedis.ttl(daukdy) < 0) {
+            jedis.expire(daukdy, 3600 * 24)
+          }
+          if (isFirst == 1L) {
+            // 说明是第一次登录
+            filteredList.append(jsonObj)
+          }
+        }
+        // 关闭连接
+        jedis.close()
+        filteredList.toIterator
+      }
     }
-
+    filteredDStream.count().print()
     ssc.start()
     ssc.awaitTermination()
   }
