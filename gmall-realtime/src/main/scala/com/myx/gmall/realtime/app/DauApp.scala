@@ -119,10 +119,10 @@ object DauApp {
         // 以分区为单位对数据进行处理
         rdd.foreachPartition{
           jsonObjItr => {
-            val dauInfoList: List[(String, DauInfo)] = jsonObjItr.map {
+            val dauInfoList: List[DauInfo] = jsonObjItr.map {
               jsonObj => {
                 val commonJsonObj: JSONObject = jsonObj.getJSONObject("common")
-                val dauInfo: DauInfo = DauInfo(
+                DauInfo(
                   commonJsonObj.getString("mid"),
                   commonJsonObj.getString("uid"),
                   commonJsonObj.getString("ar"),
@@ -133,7 +133,6 @@ object DauApp {
                   "00",
                   jsonObj.getLong("ts")
                 )
-                (dauInfo.mid, dauInfo)
               }
             }.toList
 
