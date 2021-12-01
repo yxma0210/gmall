@@ -2,10 +2,10 @@ package com.myx.gmall.realtime.utils
 
 import java.util
 
-import com.myx.gmall.realtime.bean.Movie
+import com.myx.gmall.realtime.bean.{DauInfo, Movie}
 import io.searchbox.client.config.HttpClientConfig
 import io.searchbox.client.{JestClient, JestClientFactory}
-import io.searchbox.core.{DocumentResult, Get, Index, Search, SearchResult}
+import io.searchbox.core.{Bulk, BulkResult, DocumentResult, Get, Index, Search, SearchResult}
 import org.elasticsearch.index.query.{BoolQueryBuilder, MatchQueryBuilder, TermQueryBuilder}
 import org.elasticsearch.search.builder.SearchSourceBuilder
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder
@@ -185,6 +185,37 @@ object MyESUtil {
     jestClient.close()
   }
 
+  /**
+   * 向ES中批量插入数据
+   * @param infoList
+   * @param indexName
+   */
+  def bulkInsert(infoList: List[Any], indexName: String): Unit = {
+    if (infoList != null && infoList.size > 0) {
+      // 获取客户端连接
+      val jestClient: JestClient = getJestClient
+      // 构建批量操作
+      val bulkBuilder: Bulk.Builder = new Bulk.Builder
+      for (info <- infoList) {
+        val index: Index = new Index.Builder(info)
+          .index(indexName)
+          .`type`("_doc")
+          .build()
+        // 将每条数据添加到批量操作中
+        bulkBuilder.addAction(index)
+      }
+      //Bulk是Action的实现类，主要实现批量操作
+      val bulk: Bulk = bulkBuilder.build()
+      // 执行批量操作，获取执行结果
+      val result: BulkResult = getJestClient.execute(bulk)
+      //通过执行结果  获取批量插入的数据
+      val items: util.List[BulkResult#BulkResultItem] = result.getItems
+      println("保存到ES" + items.size() + "条数")
+      // 关闭连接
+      jestClient.close()
+    }
+
+  }
   def main(args: Array[String]): Unit = {
     queryIndexByCondition2()
   }
