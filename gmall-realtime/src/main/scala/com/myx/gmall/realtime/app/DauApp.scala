@@ -5,7 +5,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 
 import com.alibaba.fastjson.{JSON, JSONObject}
-import com.myx.gmall.realtime.utils.{MyKafkaUtil, MyRedisUtil}
+import com.myx.gmall.realtime.bean.DauInfo
+import com.myx.gmall.realtime.utils.{MyESUtil, MyKafkaUtil, MyRedisUtil}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.spark.SparkConf
 import org.apache.spark.streaming.dstream.{DStream, InputDStream}
@@ -111,7 +112,38 @@ object DauApp {
         filteredList.toIterator
       }
     }
-    filteredDStream.count().print()
+    // filteredDStream.count().print()
+    //将数据批量的保存到ES中
+    filteredDStream.foreachRDD{
+      rdd => {
+        // 以分区为单位对数据进行处理
+        rdd.foreachPartition{
+          jsonObjItr => {
+            val dauInfoList: List[(String, DauInfo)] = jsonObjItr.map {
+              jsonObj => {
+                val commonJsonObj: JSONObject = jsonObj.getJSONObject("common")
+                val dauInfo: DauInfo = DauInfo(
+                  commonJsonObj.getString("mid"),
+                  commonJsonObj.getString("uid"),
+                  commonJsonObj.getString("ar"),
+                  commonJsonObj.getString("ch"),
+                  commonJsonObj.getString("vc"),
+                  jsonObj.getString("dt"),
+                  jsonObj.getString("hr"),
+                  "00",
+                  jsonObj.getLong("ts")
+                )
+                (dauInfo.mid, dauInfo)
+              }
+            }.toList
+
+            // 将数据批量保存到ES中
+            val dt: String = new SimpleDateFormat("yyyy-MM-dd").format(new Date())
+            MyESUtil.bulkInsert(dauInfoList,"gmall_dau_info_" + dt)
+          }
+        }
+      }
+    }
     ssc.start()
     ssc.awaitTermination()
   }
