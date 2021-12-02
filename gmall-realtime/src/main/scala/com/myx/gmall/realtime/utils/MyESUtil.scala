@@ -210,7 +210,7 @@ object MyESUtil {
       val result: BulkResult = getJestClient.execute(bulk)
       //通过执行结果  获取批量插入的数据
       val items: util.List[BulkResult#BulkResultItem] = result.getItems
-      println("保存到ES" + items.size() + "条数")
+      println("保存到ES: " + items.size() + "条数")
       // 关闭连接
       jestClient.close()
     }
