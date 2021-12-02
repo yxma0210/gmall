@@ -190,16 +190,17 @@ object MyESUtil {
    * @param infoList
    * @param indexName
    */
-  def bulkInsert(infoList: List[Any], indexName: String): Unit = {
+  def bulkInsert(infoList: List[(String,Any)], indexName: String): Unit = {
     if (infoList != null && infoList.size > 0) {
       // 获取客户端连接
       val jestClient: JestClient = getJestClient
       // 构建批量操作
       val bulkBuilder: Bulk.Builder = new Bulk.Builder
-      for (info <- infoList) {
-        val index: Index = new Index.Builder(info)
+      for ((id,dauInfo) <- infoList) {
+        val index: Index = new Index.Builder(dauInfo)
           .index(indexName)
           .`type`("_doc")
+          .id(id)
           .build()
         // 将每条数据添加到批量操作中
         bulkBuilder.addAction(index)
