@@ -1,7 +1,7 @@
 package com.myx.gmall.realtime.ods
 
 import com.alibaba.fastjson.{JSON, JSONArray, JSONObject}
-import com.myx.gmall.realtime.utils.{MyKafkaUtil, OffsetManagerUtil}
+import com.myx.gmall.realtime.utils.{MyKafkaSink, MyKafkaUtil, OffsetManagerUtil}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.SparkConf
@@ -72,7 +72,7 @@ object BaseDBCanalApp {
               import scala.collection.JavaConverters._
               for (dataJson <- dataArr.asScala) {
                 // 根据表名将数据发送到不同的主题中
-                MyKafkaSend(sendTopic,dataJson.toString)
+                MyKafkaSink.send(sendTopic,dataJson.toString)
               }
             }
           }
