@@ -34,9 +34,11 @@ object PhoenixUtil {
     val statement: PreparedStatement = conn.prepareStatement(sql)
     // 执行sql语句
     val resultSet: ResultSet = statement.executeQuery()
+    // 获取元数据
     val metaData: ResultSetMetaData = resultSet.getMetaData
     // 处理结果集
     while (resultSet.next()) {
+      // 获取字段的个数
       val count: Int = metaData.getColumnCount
       val userStatusJsonObj = new JSONObject()
       for ( i<- 1 to count) {
