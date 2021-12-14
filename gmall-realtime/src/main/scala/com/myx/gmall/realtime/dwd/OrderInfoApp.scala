@@ -1,8 +1,8 @@
 package com.myx.gmall.realtime.dwd
 
-import com.alibaba.fastjson.JSON
+import com.alibaba.fastjson.{JSON, JSONObject}
 import com.myx.gmall.realtime.bean.OrderInfo
-import com.myx.gmall.realtime.utils.{MyKafkaUtil, OffsetManagerUtil}
+import com.myx.gmall.realtime.utils.{MyKafkaUtil, OffsetManagerUtil, PhoenixUtil}
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.SparkConf
@@ -35,7 +35,7 @@ object OrderInfoApp {
     }
 
     // 获取当前批次处理的偏移量
-    var offsetRanges = Array.empty[OffsetRange]
+    var offsetRanges: Array[OffsetRange] = Array.empty[OffsetRange]
     val offsetDStream: DStream[ConsumerRecord[String, String]] = recordDStream.transform {
       rdd => {
         offsetRanges = rdd.asInstanceOf[HasOffsetRanges].offsetRanges
@@ -43,7 +43,7 @@ object OrderInfoApp {
       }
     }
     // 对DS机构进行转换 DStream[ConsumerRecord[String, String]] --> values:jsonStr --> OrderInfo
-    val orderInfoDStream: DStream[Unit] = offsetDStream.map {
+    val orderInfoDStream: DStream[OrderInfo] = offsetDStream.map {
       record => {
         val jsonStr: String = record.value()
         // 将json格式转换为OrderInfo对象
@@ -53,8 +53,33 @@ object OrderInfoApp {
         val create_timeArr: Array[String] = create_time.split(" ")
         orderInfo.create_date = create_timeArr(0)
         orderInfo.create_hour = create_timeArr(1).split(":")(0)
+        orderInfo
       }
     }
-    orderInfoDStream.print(1000)
+    // orderInfoDStream.print(1000)
+
+    // 方案1：对DStream中的数据进行处理，判断下单的用户是否为首单
+    // 对于每条订单都要执行一个sql，sql语句过多
+    val orderInfoWithFirstFlagDStream: DStream[OrderInfo] = orderInfoDStream.map {
+      orderInfo => {
+        // 获取用户的id
+        val userId: Long = orderInfo.user_id
+        // 根据用户id到phoenix中查询是否下单过
+        val sql = s"select user_id,if_consumed from user_status where user_id='${userId}'"
+        val userStatusList: List[JSONObject] = PhoenixUtil.queryList(sql)
+        if (userStatusList != null && userStatusList.size > 0) {
+          orderInfo.if_first_order = "0"
+        } else {
+          orderInfo.if_first_order = "1"
+        }
+        orderInfo
+      }
+    }
+
+    // 方案2  以分区为单位，将整个分区的数据拼接一条SQL进行一次查询
+
+    orderInfoWithFirstFlagDStream.print(10000)
+    ssc.start()
+    ssc.awaitTermination()
   }
 }
