@@ -103,9 +103,45 @@ object OrderInfoApp {
     }
     // orderInfoWithFirstFlagDStream.print(10000)
 
+    /*
+      ===================同一批次中状态修正  ====================
+      应该将同一采集周期的同一用户的最早的订单标记为首单，其它都改为非首单
+      	同一采集周期的同一用户-----按用户分组（groupByKey）
+      	最早的订单-----排序，取最早（sortwith）
+      	标记为首单-----具体业务代码
+      */
+    //对待处理的数据进行结构转换orderInfo====>(userId,orderInfo)
+    val mapDStream: DStream[(Long, OrderInfo)] = orderInfoWithFirstFlagDStream.map(orderInfo => (orderInfo.user_id, orderInfo))
+    // 根据用户id对用户进行分组
+    val groupByKeyDStream: DStream[(Long, Iterable[OrderInfo])] = mapDStream.groupByKey()
+
+    val sortOrderInfoWithFirstFlagDStream: DStream[OrderInfo] = groupByKeyDStream.flatMap {
+      case (userId, orderInfoIter) => {
+        val orderInfoList: List[OrderInfo] = orderInfoIter.toList
+        // 怕暖在一个周期内，同一个用户是否存在多个订单
+        if (orderInfoList.size > 1 && orderInfoList != null) {
+          // 如果下了多个订单，按照订单时间升序排序
+          val sortOrderInfoList: List[OrderInfo] = orderInfoList.sortWith {
+            (orderInfo1, orderInfo2) => {
+              orderInfo1.create_time < orderInfo2.create_time
+            }
+          }
+          // 取出集合第一个元素
+          if (sortOrderInfoList(0).if_first_order == "1") {
+            // 时间最早的订单首单状态保留为1，其它的都设置为非首单
+            for (i <- 1 until sortOrderInfoList.size) {
+              sortOrderInfoList(i).if_first_order = "0"
+            }
+          }
+          sortOrderInfoList
+        } else {
+          orderInfoList
+        }
+      }
+    }
     // 保存用户状态
     import org.apache.phoenix.spark._
-    orderInfoWithFirstFlagDStream.foreachRDD{
+    sortOrderInfoWithFirstFlagDStream.foreachRDD{
       rdd => {
         // 从所有的订单中，将首订单过滤出来
         val firstOrderRDD: RDD[OrderInfo] = rdd.filter(_.if_first_order == "1")
