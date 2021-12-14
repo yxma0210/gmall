@@ -1,11 +1,13 @@
 package com.myx.gmall.realtime.dwd
 
 import com.alibaba.fastjson.{JSON, JSONObject}
-import com.myx.gmall.realtime.bean.OrderInfo
+import com.myx.gmall.realtime.bean.{OrderInfo, UserStatus}
 import com.myx.gmall.realtime.utils.{MyKafkaUtil, OffsetManagerUtil, PhoenixUtil}
+import org.apache.hadoop.conf.Configuration
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.SparkConf
+import org.apache.spark.rdd.RDD
 import org.apache.spark.streaming.dstream.{DStream, InputDStream}
 import org.apache.spark.streaming.kafka010.{HasOffsetRanges, OffsetRange}
 import org.apache.spark.streaming.{Seconds, StreamingContext}
@@ -99,8 +101,27 @@ object OrderInfoApp {
         orderInfoList.toIterator
       }
     }
-    orderInfoWithFirstFlagDStream.print(10000)
+    // orderInfoWithFirstFlagDStream.print(10000)
 
+    // 保存用户状态
+    import org.apache.phoenix.spark._
+    orderInfoWithFirstFlagDStream.foreachRDD{
+      rdd => {
+        // 从所有的订单中，将首订单过滤出来
+        val firstOrderRDD: RDD[OrderInfo] = rdd.filter(_.if_first_order == "1")
+        // 获取当前用户并更新到Hbase，注意saveToPhoenix在更新的时候，要求RDD的属性和插入hbase表中的列数必须保持一致，
+        // 所以转换一下
+        val firstOrderUserRDD: RDD[UserStatus] = firstOrderRDD.map {
+          orderInfo => UserStatus(orderInfo.user_id.toString, "1")
+        }
+        firstOrderUserRDD.saveToPhoenix(
+          "USER_STATUS",
+          Seq("USER_ID","IF_CONSUMED"),
+          new Configuration,
+          Some("hadoop201,hadoop202,hadoop203:2181")
+        )
+      }
+    }
     ssc.start()
     ssc.awaitTermination()
   }
