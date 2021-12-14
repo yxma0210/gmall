@@ -60,7 +60,7 @@ object OrderInfoApp {
 
     // 方案1：对DStream中的数据进行处理，判断下单的用户是否为首单
     // 对于每条订单都要执行一个sql，sql语句过多
-    val orderInfoWithFirstFlagDStream: DStream[OrderInfo] = orderInfoDStream.map {
+    /*val orderInfoWithFirstFlagDStream: DStream[OrderInfo] = orderInfoDStream.map {
       orderInfo => {
         // 获取用户的id
         val userId: Long = orderInfo.user_id
@@ -74,11 +74,33 @@ object OrderInfoApp {
         }
         orderInfo
       }
-    }
+    }*/
 
     // 方案2  以分区为单位，将整个分区的数据拼接一条SQL进行一次查询
-
+    val orderInfoWithFirstFlagDStream: DStream[OrderInfo] = orderInfoDStream.mapPartitions {
+      orderInfoIter => {
+        // 当前一个分区中所有订单的集合
+        val orderInfoList: List[OrderInfo] = orderInfoIter.toList
+        // 获取当前分区中下单的用户
+        val userIdList: List[Long] = orderInfoList.map(_.user_id)
+        // 根据用户集合到Phoenix中查询出下过单的用户
+        val sql: String =
+          s"select user_id,if_consumed from user_status where user_id in('${userIdList.mkString("','")}')"
+        val userStatusList: List[JSONObject] = PhoenixUtil.queryList(sql)
+        // 获取消费过的用户id
+        val consumedUserIdList: List[String] = userStatusList.map(_.getString("USER_ID"))
+        for (orderInfo <- orderInfoList) {
+          if (consumedUserIdList.contains(orderInfo.user_id.toString)) {
+            orderInfo.if_first_order = "0"
+          } else {
+            orderInfo.if_first_order = "1"
+          }
+        }
+        orderInfoList.toIterator
+      }
+    }
     orderInfoWithFirstFlagDStream.print(10000)
+
     ssc.start()
     ssc.awaitTermination()
   }
