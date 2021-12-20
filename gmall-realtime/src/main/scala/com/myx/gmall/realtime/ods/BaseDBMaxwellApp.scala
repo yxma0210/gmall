@@ -53,9 +53,9 @@ object BaseDBMaxwellApp {
       }
     }
     // 分流,从json对象中获取table和data，发送到不同的kafka主题
-    jsonObjDStream.foreachRDD{
+    jsonObjDStream.foreachRDD {
       rdd => {
-        rdd.foreach{
+        rdd.foreach {
           jsonObj => {
             // 获取操作类型
             val opType: String = jsonObj.getString("type")
@@ -63,28 +63,29 @@ object BaseDBMaxwellApp {
             val dataJsonObj: JSONObject = jsonObj.getJSONObject("data")
             // 获取表名
             val table: String = jsonObj.getString("table")
-            if(dataJsonObj!=null && !dataJsonObj.isEmpty ){
-              if(
-                ("order_info".equals(table)&&"insert".equals(opType))
+            if (dataJsonObj != null && !dataJsonObj.isEmpty) {
+              if (
+                ("order_info".equals(table) && "insert".equals(opType))
                   || (table.equals("order_detail") && "insert".equals(opType))
-                  ||  table.equals("base_province")
-                  ||  table.equals("user_info")
-                  ||  table.equals("sku_info")
-                  ||  table.equals("base_trademark")
-                  ||  table.equals("base_category3")
-                  ||  table.equals("spu_info")
-              ){
+                  || table.equals("base_province")
+                  || table.equals("user_info")
+                  || table.equals("sku_info")
+                  || table.equals("base_trademark")
+                  || table.equals("base_category3")
+                  || table.equals("spu_info")
+              ) {
                 //拼接要发送到的主题
                 var sendTopic = "ods_" + table
-                MyKafkaSink.send(sendTopic,dataJsonObj.toString)
+                MyKafkaSink.send(sendTopic, dataJsonObj.toString)
               }
+            }
           }
         }
-        // 修改redis中Kafka的偏移量
-        OffsetManagerUtil.saveOffset(topic,groupId,offsetRanges)
+            // 修改redis中Kafka的偏移量
+            OffsetManagerUtil.saveOffset(topic, groupId, offsetRanges)
+        }
       }
-    }
-    ssc.start()
-    ssc.awaitTermination()
+        ssc.start()
+        ssc.awaitTermination()
   }
 }
