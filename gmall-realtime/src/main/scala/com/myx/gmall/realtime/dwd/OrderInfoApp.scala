@@ -1,7 +1,7 @@
 package com.myx.gmall.realtime.dwd
 
 import com.alibaba.fastjson.{JSON, JSONObject}
-import com.myx.gmall.realtime.bean.{OrderInfo, UserStatus}
+import com.myx.gmall.realtime.bean.{OrderInfo, ProvinceInfo, UserStatus}
 import com.myx.gmall.realtime.utils.{MyKafkaUtil, OffsetManagerUtil, PhoenixUtil}
 import org.apache.hadoop.conf.Configuration
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -139,9 +139,43 @@ object OrderInfoApp {
         }
       }
     }
+    // 省份表和维度表关联
+    // 方案1：以分区为单位，对订单数据进行处理，和phoenix中的订单表关联
+    val orderInfoWithProvinceDStream: DStream[OrderInfo] = sortOrderInfoWithFirstFlagDStream.mapPartitions {
+      orderInfoIter => {
+        // 转换为List
+        val orderInfoList: List[OrderInfo] = orderInfoIter.toList
+        // 获取当前分区中订单对应的省份id
+        val provinceIdList: List[Long] = orderInfoList.map(_.province_id)
+        // 根据省份id到phoenix中查询对应的省份
+        var sql: String = s"select id,name,area_code,iso_code from gmall_province_info where id in('${provinceIdList.mkString("','")}')"
+        val privinceInfoList: List[JSONObject] = PhoenixUtil.queryList(sql)
+        val provinceInfoMap: Map[String, ProvinceInfo] = privinceInfoList.map {
+          provinceJsonObj => {
+            // 将json对象转换为省份样例类对象
+            val provinceInfo: ProvinceInfo = JSON.toJavaObject(provinceJsonObj, classOf[ProvinceInfo])
+            (provinceInfo.id, provinceInfo)
+          }
+        }.toMap
+
+        // 对订单数据进行遍历，用遍历的省份id，provinceInfoMap获取省份对象
+        for (orderInfo <- orderInfoList) {
+          val proInfo: ProvinceInfo = provinceInfoMap.getOrElse(orderInfo.province_id.toString, null)
+          if (proInfo != null) {
+            orderInfo.province_name = proInfo.name
+            orderInfo.province_area_code = proInfo.area_code
+            orderInfo.province_iso_code = proInfo.iso_code
+          }
+        }
+        orderInfoList.toIterator
+      }
+    }
+
+    orderInfoWithProvinceDStream.print(1000)
+
     // 保存用户状态
     import org.apache.phoenix.spark._
-    sortOrderInfoWithFirstFlagDStream.foreachRDD{
+    orderInfoWithProvinceDStream.foreachRDD{
       rdd => {
         // 从所有的订单中，将首订单过滤出来
         val firstOrderRDD: RDD[OrderInfo] = rdd.filter(_.if_first_order == "1")
