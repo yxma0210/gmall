@@ -63,12 +63,21 @@ object BaseDBMaxwellApp {
             val dataJsonObj: JSONObject = jsonObj.getJSONObject("data")
             // 获取表名
             val table: String = jsonObj.getString("table")
-            if (dataJsonObj!=null && !dataJsonObj.isEmpty && !"delete".equals(opType)) {
-              // 拼接主题
-              var sendTopic = "ods_" + table
-              // 向Kafka发送数据
-              MyKafkaSink.send(sendTopic,dataJsonObj.toString())
-            }
+            if(dataJsonObj!=null && !dataJsonObj.isEmpty ){
+              if(
+                ("order_info".equals(table)&&"insert".equals(opType))
+                  || (table.equals("order_detail") && "insert".equals(opType))
+                  ||  table.equals("base_province")
+                  ||  table.equals("user_info")
+                  ||  table.equals("sku_info")
+                  ||  table.equals("base_trademark")
+                  ||  table.equals("base_category3")
+                  ||  table.equals("spu_info")
+              ){
+                //拼接要发送到的主题
+                var sendTopic = "ods_" + table
+                MyKafkaSink.send(sendTopic,dataJsonObj.toString)
+              }
           }
         }
         // 修改redis中Kafka的偏移量
