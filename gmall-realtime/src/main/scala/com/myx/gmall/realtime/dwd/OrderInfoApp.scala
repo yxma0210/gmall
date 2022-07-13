@@ -1,12 +1,13 @@
 package com.myx.gmall.realtime.dwd
 
 import com.alibaba.fastjson.{JSON, JSONObject}
-import com.myx.gmall.realtime.bean.{OrderInfo, ProvinceInfo, UserStatus}
+import com.myx.gmall.realtime.bean.{OrderInfo, ProvinceInfo, UserInfo, UserStatus}
 import com.myx.gmall.realtime.utils.{MyKafkaUtil, OffsetManagerUtil, PhoenixUtil}
 import org.apache.hadoop.conf.Configuration
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.common.TopicPartition
 import org.apache.spark.SparkConf
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.rdd.RDD
 import org.apache.spark.streaming.dstream.{DStream, InputDStream}
 import org.apache.spark.streaming.kafka010.{HasOffsetRanges, OffsetRange}
@@ -141,7 +142,8 @@ object OrderInfoApp {
     }
     // 省份表和维度表关联
     // 方案1：以分区为单位，对订单数据进行处理，和phoenix中的订单表关联
-    val orderInfoWithProvinceDStream: DStream[OrderInfo] = sortOrderInfoWithFirstFlagDStream.mapPartitions {
+    /* val orderInfoWithProvinceDStream: DStream[OrderInfo] =
+      sortOrderInfoWithFirstFlagDStream.mapPartitions {
       orderInfoIter => {
         // 转换为List
         val orderInfoList: List[OrderInfo] = orderInfoIter.toList
@@ -169,9 +171,71 @@ object OrderInfoApp {
         }
         orderInfoList.toIterator
       }
+    } */
+
+    // 关联省份方案2 使用广播变量，在Driver端进行一次查询，分区越多效果月明显，前提：省份数据量少
+    val orderInfoWithProvinceDStream: DStream[OrderInfo] = sortOrderInfoWithFirstFlagDStream.transform {
+      rdd => {
+        // 从Phoenix中查询所有的省份数据
+        val sql: String = "select id,name, area_code, iso_code from gmall_province_info"
+        val provinceInfoList: List[JSONObject] = PhoenixUtil.queryList(sql)
+        val provinceInfoMap: Map[String, ProvinceInfo] = provinceInfoList.map {
+          provinceJsonObj => {
+            // 将json对象转换为省份样例类对象
+            val provinceInfo: ProvinceInfo = JSON.toJavaObject(provinceJsonObj, classOf[ProvinceInfo])
+            (provinceInfo.id, provinceInfo)
+          }
+        }.toMap
+        // 定义省份的广播变量
+        val dbMap: Broadcast[Map[String, ProvinceInfo]] = ssc.sparkContext.broadcast(provinceInfoMap)
+
+        rdd.map {
+          orderInfo => {
+            val proInfo: ProvinceInfo = dbMap.value.getOrElse(orderInfo.province_id.toString, null)
+            if (proInfo != null) {
+              orderInfo.province_name = proInfo.name
+              orderInfo.province_area_code = proInfo.area_code
+              orderInfo.province_iso_code = proInfo.iso_code
+            }
+            orderInfo
+          }
+        }
+      }
     }
 
-    orderInfoWithProvinceDStream.print(1000)
+    // orderInfoWithProvinceDStream.print(1000)
+
+    // 用户维度表进行关联
+    // 以分区为单位对数据进行处理，每个分区拼接一个sql到phoenix上查询用户数据
+    val orderInfoWithUserInfoDStream: DStream[OrderInfo] = orderInfoWithProvinceDStream.mapPartitions {
+      orderInfoItr => {
+        // 转化为list集合
+        val orderInfoList: List[OrderInfo] = orderInfoItr.toList
+        // 获取所有用户id
+        val userIdList: List[Long] = orderInfoList.map(_.user_id)
+        // 根据id拼接sql语句，到phoenix查询用户
+        val sql: String = s"select id,user_level,birthday,gender,age_group," +
+          s"gender_name from gmall_user_info where id in (${userIdList.mkString("','")})"
+        // 当前分区中所有的下单用户
+        val userList: List[JSONObject] = PhoenixUtil.queryList(sql)
+        val userMap: Map[String, UserInfo] = userList.map {
+          userJsonObj => {
+            val userInfo: UserInfo = JSON.toJavaObject(userJsonObj, classOf[UserInfo])
+            (userInfo.id, userInfo)
+          }
+        }.toMap
+        for (orderInfo <- orderInfoList) {
+          val userInfoObj: UserInfo = userMap.getOrElse(orderInfo.user_id.toString, null)
+          if (userInfoObj != null) {
+            orderInfo.user_age_group = userInfoObj.age_group
+            orderInfo.user_gender = userInfoObj.gender_name
+          }
+        }
+        orderInfoList.toIterator
+      }
+    }
+
+    orderInfoWithUserInfoDStream.print(1000)
 
     // 保存用户状态
     import org.apache.phoenix.spark._
