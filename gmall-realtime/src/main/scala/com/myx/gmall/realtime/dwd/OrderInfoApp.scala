@@ -142,7 +142,7 @@ object OrderInfoApp {
     }
     // 省份表和维度表关联
     // 方案1：以分区为单位，对订单数据进行处理，和phoenix中的订单表关联
-    /* val orderInfoWithProvinceDStream: DStream[OrderInfo] =
+     val orderInfoWithProvinceDStream: DStream[OrderInfo] =
       sortOrderInfoWithFirstFlagDStream.mapPartitions {
       orderInfoIter => {
         // 转换为List
@@ -151,17 +151,21 @@ object OrderInfoApp {
         val provinceIdList: List[Long] = orderInfoList.map(_.province_id)
         // 根据省份id到phoenix中查询对应的省份
         var sql: String = s"select id,name,area_code,iso_code from gmall_province_info where id in('${provinceIdList.mkString("','")}')"
-        val privinceInfoList: List[JSONObject] = PhoenixUtil.queryList(sql)
-        val provinceInfoMap: Map[String, ProvinceInfo] = privinceInfoList.map {
+        val provinceInfoList: List[JSONObject] = PhoenixUtil.queryList(sql)
+
+        val provinceInfoMap: Map[String, ProvinceInfo] = provinceInfoList.map {
           provinceJsonObj => {
-            // 将json对象转换为省份样例类对象
+            //将json对象转换为省份样例类对象
             val provinceInfo: ProvinceInfo = JSON.toJavaObject(provinceJsonObj, classOf[ProvinceInfo])
+            println("================")
+            println(provinceInfo.id)
             (provinceInfo.id, provinceInfo)
           }
         }.toMap
 
         // 对订单数据进行遍历，用遍历的省份id，provinceInfoMap获取省份对象
         for (orderInfo <- orderInfoList) {
+          println("orderInfo.province_id:" + orderInfo.province_id)
           val proInfo: ProvinceInfo = provinceInfoMap.getOrElse(orderInfo.province_id.toString, null)
           if (proInfo != null) {
             orderInfo.province_name = proInfo.name
@@ -171,10 +175,10 @@ object OrderInfoApp {
         }
         orderInfoList.toIterator
       }
-    } */
+    }
 
     // 关联省份方案2 使用广播变量，在Driver端进行一次查询，分区越多效果月明显，前提：省份数据量少
-    val orderInfoWithProvinceDStream: DStream[OrderInfo] = sortOrderInfoWithFirstFlagDStream.transform {
+    /*val orderInfoWithProvinceDStream: DStream[OrderInfo] = sortOrderInfoWithFirstFlagDStream.transform {
       rdd => {
         // 从Phoenix中查询所有的省份数据
         val sql: String = "select id,name, area_code, iso_code from gmall_province_info"
@@ -202,12 +206,12 @@ object OrderInfoApp {
         }
       }
     }
-
-    // orderInfoWithProvinceDStream.print(1000)
+*/
+     orderInfoWithProvinceDStream.print(1000)
 
     // 用户维度表进行关联
     // 以分区为单位对数据进行处理，每个分区拼接一个sql到phoenix上查询用户数据
-    val orderInfoWithUserInfoDStream: DStream[OrderInfo] = orderInfoWithProvinceDStream.mapPartitions {
+    /*val orderInfoWithUserInfoDStream: DStream[OrderInfo] = orderInfoWithProvinceDStream.mapPartitions {
       orderInfoItr => {
         // 转化为list集合
         val orderInfoList: List[OrderInfo] = orderInfoItr.toList
@@ -235,7 +239,7 @@ object OrderInfoApp {
       }
     }
 
-    orderInfoWithUserInfoDStream.print(1000)
+    orderInfoWithUserInfoDStream.print(1000)*/
 
     // 保存用户状态
     import org.apache.phoenix.spark._
